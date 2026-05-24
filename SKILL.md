@@ -1,11 +1,11 @@
 ---
 name: desktop-control
-description: "v3.6 — 五护盾 + 操作检查点回滚 + 接口解耦。Win32/WinUI3/Electron/Qt全覆盖。"
+description: "v3.7 — Store应用激活降级链 + 对话回复读取规则 + 粘贴验证时序。Win32/WinUI3/Electron/Qt全覆盖。"
 ---
 
-# Desktop Control Skill v3.6
+# Desktop Control Skill v3.7
 
-**v3.6: 操作级检查点回滚——多步操作每步前 checkpoint，失败回滚到安全点，不撞墙。**
+**v3.7: Store应用激活降级链——Win32失败→鼠标点击→UIA SetFocus。对话回复读取规则。粘贴验证三步。**
 **v3.5: 五护盾（健康度+时间盾+熔断器+环境检测+安全点回滚）+ 全管线可替换。详细架构见 references/。**
 
 ## 操作流程
@@ -115,7 +115,17 @@ description: "v3.6 — 五护盾 + 操作检查点回滚 + 接口解耦。Win32/
 | send_keys 逐字打 | 否 | 中文输入法状态一乱全崩 |
 | SetValue (Electron) | 否 | 绕过React状态，发送判定为空 |
 
-**⚠️ send_keys 时序坑：** `^v{ENTER}` 合并到一次 send_keys 调用时，长文本（>200字符）的粘贴和回车之间没有间隔，{ENTER} 可能在剪贴板写入完成前触发 → 编辑器收到空回车或截断文本。**必须分两步：先 `send_keys("^v")` → 用 ValuePattern 读回验证长度 → 再 `send_keys("{ENTER}")`。**
+**⚠️ send_keys 时序坑：** `^v{ENTER}` 合并到一次 send_keys 调用时，长文本（>200字符）的粘贴和回车之间没有间隔，{ENTER} 可能在剪贴板写入完成前触发 → 编辑器收到空回车或截断文本。**必须分三步：先 `send_keys("^v")` → 等 500ms → 用 ValuePattern/vision 验证输入框有内容 → 再 `send_keys("{ENTER}")`。**
+
+### 对话窗口读回复规则（v3.7）
+
+从聊天应用用视觉读回复时容易读到自己的消息。**必须：**
+
+1. send_keys({END}) 滚到底
+2. 等 1s
+3. 截图
+4. vision：从底部往上找最近一条非我发送的消息
+5. 如果读到自己的消息 → 重试
 
 ## 验证分层（v2.2+）
 
@@ -150,6 +160,25 @@ description: "v3.6 — 五护盾 + 操作检查点回滚 + 接口解耦。Win32/
 | Edge | Get-Process MainWindowHandle=0 | UIA RootElement 按 ClassName 定位 |
 | Settings | SystemSettings MainWindowHandle=0 | UIA 只读 |
 | iLink | 快速连续调用 → rate limited (ret=-2) | 失败后等 2 分钟 |
+
+### Store 应用激活降级链（v3.7）
+
+Store 版应用（Claude Desktop、Settings 等）的 Win32 ShowWindow/SetForegroundWindow 经常返回 False 且静默失败。**降级链：**
+
+```
+1. ShowWindow(5) + SetForegroundWindow
+   → True? 完成
+   → False? ↓
+2. mouse_click(窗口标题栏中心坐标)  # 物理点击激活
+   → 截图验证标题栏高亮? 完成
+   → 仍未激活? ↓
+3. UIA FindFirst(目标编辑框) → SetFocus()  # 直接聚焦输入控件
+   → ValuePattern 验证可读写? 完成
+   → 仍失败? ↓
+4. 通知用户「请点击 Claude Desktop 窗口」
+```
+
+**关键：** 步骤2的标题栏坐标——取窗口 BoundingRectangle，标题栏 y 坐标 = rect.Top + 15px，x 坐标 = rect.Left + rect.Width/2。
 
 ## Qt应用铁律
 
@@ -187,8 +216,14 @@ description: "v3.6 — 五护盾 + 操作检查点回滚 + 接口解耦。Win32/
 - 接口协议: `scripts/interfaces.py`
 - 五护盾实现: `scripts/robustness.py`
 - SOM锚点引擎: `scripts/visual_som_anchor.py`
+- SOM锚点引擎: `scripts/visual_som_anchor.py`
 - UIA SOM 引擎: `~/.hermes/skills/uia-state-machine/scripts/uia_som.py`
+- **CC 快刀（v3.7 新增）：** `scripts/som-scan`（截图→vision→缓存元素）、`scripts/som-click`（按编号点击）、`scripts/ps-run`（PowerShell UTF-8桥接器）
 - 完整参考: `references/desktop-control-reference.md`
+- 多应用实战测试(v3.5): `references/v3.5-field-test-2026-05-23.md`
 - **v3.5 实战测试**: `references/v3.5-field-test-2026-05-23.md`
 - iLink 联系人限制: `references/ilink-contact-discovery.md`
+- **GitHub:** https://github.com/jiangxiao642-spec/hermes-desktop-control
+- **Claude Desktop 操控:** `references/claude-desktop-uia-prosemirror.md`
 - Claude Desktop UIA + ProseMirror: `references/claude-desktop-uia-prosemirror.md`
+- **安全审计:** `references/deepmind-agent-attack-traps.md`（DeepMind 六类 Agent 攻击陷阱，2026-04）

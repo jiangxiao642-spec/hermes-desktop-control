@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""SOM 点击——按元素编号点击（从 som-scan 缓存读坐标）。
+
+用法:
+  som-click <N>               # 左键点击元素 N
+  som-click <N> --right       # 右键点击
+  som-click <N> --double      # 双击
+  som-click <N> --move        # 仅移动不点击
+  som-click --list            # 列出所有缓存元素
+"""
+
+import sys
+import json
+import subprocess
+from pathlib import Path
+
+CACHE_PATH = Path("/tmp/som-cache.json")
+
+CLICK_LEFT = """
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y})
+Start-Sleep -Milliseconds 80
+Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
+public class M{{[DllImport("user32.dll")]
+public static extern void mouse_event(int f,int dx,int dy,int d,int e);}}'
+[M]::mouse_event(0x0002,0,0,0,0); Start-Sleep -Milliseconds 80
+[M]::mouse_event(0x0004,0,0,0,0)
+Write-Output 'CLICK_OK'
+"""
+
+CLICK_RIGHT = """
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y})
+Start-Sleep -Milliseconds 80
+Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
+public class M{{[DllImport("user32.dll")]
+public static extern void mouse_event(int f,int dx,int dy,int d,int e);}}'
+[M]::mouse_event(0x0008,0,0,0,0); Start-Sleep -Milliseconds 80
+[M]::mouse_event(0x0010,0,0,0,0)
+Write-Output 'RIGHT_CLICK_OK'
+"""
+
+CLICK_DOUBLE = """
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y})
+Start-Sleep -Milliseconds 80
+Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
+public class M{{[DllImport("user32.dll")]
+public static extern void mouse_event(int f,int dx,int dy,int d,int e);}}'
+[M]::mouse_event(0x0002,0,0,0,0); Start-Sleep -Milliseconds 80
+[M]::mouse_event(0x0004,0,0,0,0); Start-Sleep -Milliseconds 200
+[M]::mouse_event(0x0002,0,0,0,0); Start-Sleep -Milliseconds 80
+[M]::mouse_event(0x0004,0,0,0,0)
+Write-Output 'DOUBLE_CLICK_OK'
+"""
+
+MOVE_ONLY = """
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y})
+Write-Output 'MOVE_OK'
+"""
+
+
+def die(msg):
+    print(f"[som-click] ❌ {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def main():
+    if not CACHE_PATH.exists():
+        die("没有 SOM 缓存——先跑 som-scan")
+
+    cache = json.loads(CACHE_PATH.read_text())
+    elements = {el["index"]: el for el in cache["elements"]}
+
+    if "--list" in sys.argv or "-l" in sys.argv:
+        print(f"🔍 {len(elements)} 个可交互元素（缓存 {cache['screenshot']}）:\n")
+        for el in cache["elements"]:
+            print(f"  [{el['index']:>2}] {el['type']:<10} \"{el['label']}\"  "
+                  f"→ ({el['cx']},{el['cy']})")
+        return
+
+    if len(sys.argv) < 2:
+        print("用法: som-click <编号> [--right|--double|--move] [--list]", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        idx = int(sys.argv[1])
+    except ValueError:
+        die(f"无效编号: {sys.argv[1]}")
+
+    el = elements.get(idx)
+    if el is None:
+        die(f"元素 [{idx}] 不存在——som-scan 缓存里最大编号是 {max(elements.keys())}")
+
+    x, y = el["cx"], el["cy"]
+
+    if "--right" in sys.argv:
+        script = CLICK_RIGHT.format(x=x, y=y)
+        action = "右键"
+    elif "--double" in sys.argv:
+        script = CLICK_DOUBLE.format(x=x, y=y)
+        action = "双击"
+    elif "--move" in sys.argv:
+        script = MOVE_ONLY.format(x=x, y=y)
+        action = "移动"
+    else:
+        script = CLICK_LEFT.format(x=x, y=y)
+        action = "点击"
+
+    result = subprocess.run(
+        ["ps-run", script], capture_output=True, text=True, timeout=10
+    )
+    print(f"[som-click] ✅ {action} [{idx}] \"{el['label']}\" → ({x}, {y})")
+    if result.stdout.strip():
+        print(f"  {result.stdout.strip()}")
+
+
+if __name__ == "__main__":
+    main()
