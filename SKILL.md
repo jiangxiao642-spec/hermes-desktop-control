@@ -163,11 +163,9 @@ description: "v3.9 — 三元验证（PASS/FAIL/UNCERTAIN）+ Anchor心跳 + UIA
 
 **假成功检测（v3.4）：** pHash 变了但变化幅度异常（全窗口灰掉→可能是弹窗遮挡）→ 判定失败。
 
-**待落地—三元验证（Claude Sonnet 4.6 建议，2026-05-31）：** 当前 pass/fail 二元。加入 uncertain 状态 → 自动升级验证层（UIA→OCR→vision），不手动判断。详见 `references/claude-agent-architecture-feedback.md`。
+**三元验证（v3.9 落地）：** `verify_dispatch.py` 实现 escalate_verification() —— UIA→pHash→OCR→vision 自动升级链。`VerifyResult.UNCERTAIN` → 自动切下一层，不手动判断。入口：`check_anchors()` + `escalate_verification()`。
 
-**待落地—Anchor 心跳：** 每轮操作前确认关键控件仍存在。UIA FindFirst anchor elements → 不存在则触发恢复流程。成本低于"操作失败再 rollback"。
-
-**待落地—外部 Watchdog：** 守护进程独立观测系统状态（窗口消失/应用崩溃/弹窗遮挡），发信号但不调工具。
+**Anchor 心跳（v3.9 落地）：** 每轮操作前调 `anchor_ok(app, snap)` — 读 UIA snap 文件确认关键控件存活。缺失→触发恢复流程（ShowWindow+SetForeground+重激活），不等操作失败才发现。
 
 ## DPI 坐标校准
 
@@ -253,6 +251,7 @@ Store 版应用（Claude Desktop、Settings 等）的 Win32 ShowWindow/SetForegr
 - UIA SOM 引擎: `~/.hermes/skills/uia-state-machine/scripts/uia_som.py`
 - **CC 快刀（v3.7 新增）：** `scripts/som-scan`（截图→vision→缓存元素）、`scripts/som-click`（按编号点击）、`scripts/ps-run`（PowerShell UTF-8桥接器）
 - **UIA 守护进程（v3.8）：** `scripts/uia_daemon.ps1` — 持久 FocusChanged handler，Chromium UIA 树不缩回骨架
+- **验证调度层（v3.9）：** `scripts/verify_dispatch.py` — 三元验证 + Anchor 心跳 + 升级链
 - 完整参考: `references/desktop-control-reference.md`
 - 多应用实战测试(v3.5): `references/v3.5-field-test-2026-05-23.md`
 - **v3.5 实战测试**: `references/v3.5-field-test-2026-05-23.md`
