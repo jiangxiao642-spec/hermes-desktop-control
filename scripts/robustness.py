@@ -62,8 +62,81 @@ class SystemTime:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Health Monitor
+# Verification Result — Ternary (Claude's suggestion, 2026-05-31)
 # ═══════════════════════════════════════════════════════════════════════════
+
+from enum import Enum
+
+
+class VerifyResult(Enum):
+    """三元验证结果——不是 pass/fail 二元，uncertain 是合法状态。
+
+    PASS: 验证通过，操作成功
+    FAIL: 验证失败，需要 rollback
+    UNCERTAIN: 不确定——需要升级到更重的验证层
+    """
+    PASS = "PASS"
+    FAIL = "FAIL"
+    UNCERTAIN = "UNCERTAIN"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Anchor Heartbeat (Claude's suggestion, 2026-05-31)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class AnchorHeartbeat:
+    """每轮操作前确认关键控件还在——不等失败才发现窗口没了。
+
+    注意：实际 UIA 扫描在 PowerShell 端执行（有 UIAutomationClient）。
+    此类是 Python 侧的抽象——记录锚点定义和检查结果。
+    真正的元素存活检查走 bridge: mcp_windows_bridge_run_powershell
+
+    关键锚点（每个应用定义自己的一套）:
+    - Claude Desktop: [("Send message", "Button"), ("Write your prompt to Claude", "Edit")]
+    - OpenClaw: [("Message Assistant (Enter to send)", "Edit")]
+    """
+
+    _anchors: list = field(default_factory=list)  # [(name, control_type), ...]
+    _missing_threshold: int = 2
+    _consecutive_missing: int = 0
+    _last_check_time: float = 0.0
+    _clock: Any = field(default_factory=SystemTime)
+
+    def set_anchors(self, anchors: list):
+        """设定锚点列表。anchors: [("Send message", "Button"), ...]"""
+        self._anchors = anchors
+
+    def evaluate(self, found_count: int) -> VerifyResult:
+        """根据外部 UIA 扫描结果评估锚点状态。
+
+        found_count: 外部扫描找到的锚点数量
+        返回 PASS/FAIL/UNCERTAIN（由外部决定升级策略）
+        """
+        self._last_check_time = self._clock.monotonic()
+        total = len(self._anchors)
+
+        if found_count >= total:
+            self._consecutive_missing = 0
+            return VerifyResult.PASS
+        elif found_count == 0:
+            self._consecutive_missing += 1
+            if self._consecutive_missing >= self._missing_threshold:
+                return VerifyResult.FAIL
+            return VerifyResult.UNCERTAIN
+        else:
+            self._consecutive_missing = 0
+            return VerifyResult.UNCERTAIN
+
+    @property
+    def is_alive(self) -> bool:
+        return self._consecutive_missing < self._missing_threshold
+
+    def summary(self) -> str:
+        return (
+            f"AnchorHeartbeat: {len(self._anchors)} anchors | "
+            f"consec_missing={self._consecutive_missing}"
+        )
 
 # DegradationLevel enum used even if interfaces import fails
 if DegradationLevel is None:
