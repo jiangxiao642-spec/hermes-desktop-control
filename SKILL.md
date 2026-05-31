@@ -84,7 +84,7 @@ description: "v3.9 — 三元验证（PASS/FAIL/UNCERTAIN）+ Anchor心跳 + UIA
 | VS Code | Chrome_WidgetWin_1 | **UIA** | Electron，控件树完整 |
 | 文件资源管理器 | CabinetWClass | **UIA** | Win32 标准控件 |
 | 任务管理器 | TaskManagerWindow | **UIA** | Win32，列表可读 |
-| 设置 (Win11) | ApplicationFrameWindow | **UIA** | WinUI3，控件树较完整 |
+| 设置 (Win11) | ApplicationFrameWindow | **视觉** | WinUI3 Store 应用，AppContainer 隔离，外部 UIA 不可达（2026-05-31 实测） |
 | 画图 | ApplicationFrameWindow | **UIA** | WinUI3 |
 | Office 系列 | _WwG / OpusApp 等 | **UIA** | Win32 自有控件体系 |
 | OpenClaw Desktop | Chrome_WidgetWin_1 | **UIA** | 守护进程激活后 2003 元素，全树可读写 |
