@@ -7,6 +7,8 @@ description: "v3.9 — 三元验证（PASS/FAIL/UNCERTAIN）+ Anchor心跳 + UIA
 
 > **WHAT（边界）：** Windows 桌面 GUI 操控栈——UIA 主通道 + 视觉兜底。**覆盖** Electron/Win32/WinUI3 应用的精确操控——读消息、写字、点击、截图。**不覆盖** Qt 应用的 UIA 操控（走视觉兜底）、应用内部逻辑、业务流程编排。这个 skill 只管"怎么操控桌面"，不管"操控来完成什么任务"。
 
+> **UIA 优先原则（v3.9+）：** Invoke 点按钮、SetValue 填字段、Element 树读内容——这三样是首选。物理鼠标（mouse_event/SetCursorPos）和截图（vision_analyze）只在 UIA 盲区才用。盲区已知：el-select 下拉（纯 Text 控件无交互接口）、Qt 应用（2元素骨架）。详见 `references/el-select-web-component-uia.md`。
+
 **v3.9: 三元验证（PASS/FAIL/UNCERTAIN）+ Anchor 心跳（操作前确认关键控件存活）。**
 
 ## 操作流程
@@ -191,6 +193,7 @@ description: "v3.9 — 三元验证（PASS/FAIL/UNCERTAIN）+ Anchor心跳 + UIA
 | 网页聊天 | Enter键不发消息 | DeepSeek/ChatGPT网页：粘贴文本后必须**点击发送按钮**（圆形箭头图标），Enter只换行。先用vision找按钮坐标，再mouse_event点击 |
 | Settings | SystemSettings MainWindowHandle=0 | UIA 只读 |
 | iLink | 快速连续调用 → rate limited (ret=-2) | 失败后等 2 分钟 |
+| **el-select下拉(Element UI)** | 无ExpandCollapsePattern、无LegacyIAccessiblePattern、Invoke不触发。UIA暴露为只读Edit。 | **物理鼠标点下拉箭头图标**（Edit右侧~20×20px Text元素）。Edge必须在前台。点后等2秒→点ListItem。窗口常被拖到屏幕外，每次操作前SetWindowPos拉回。完整研究: `references/el-select-web-component-uia.md`。批量填表模式: `references/web-form-automation-pattern.md`。工学云实战验证(2026-06-03) |
 
 ### Store 应用激活降级链（v3.7）
 
@@ -262,4 +265,6 @@ Store 版应用（Claude Desktop、Settings 等）的 Win32 ShowWindow/SetForegr
 - **安全审计:** `references/deepmind-agent-attack-traps.md`（DeepMind 六类 Agent 攻击陷阱，2026-04）
 - **DirectShell UIA 四阶段激活:** `references/directshell-uia-activation.md`（Chromium/Electron 完整可访问性树暴露）
 - **Claude 架构建议（三元验证/Anchor心跳/Watchdog）:** `references/claude-agent-architecture-feedback.md`（2026-05-31 通过 UIA 对话获取）
-- **Claude Desktop EXE 版 UIA 实测:** `references/claude-desktop-exe-uia-results.md`（2026-05-31，126元素，输入框+消息可读写）
+- **Computer Use 架构分析（v3.10）：** `references/computer-use-approach.md` — Codex 模型原生单循环 vs 我们的多步骤管道
+- **el-select UIA 盲区研究：** `references/el-select-web-component-uia.md` — 文献查证 + 6种失败方案 + 唯一可行路径
+- **Web 表单批量填写模式：** `references/web-form-automation-pattern.md` — 标准化流程 + 踩坑 + 泛化适用

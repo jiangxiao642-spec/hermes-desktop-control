@@ -38,8 +38,8 @@ auxiliary:
 
 ```powershell
 Add-Type -AssemblyName System.Drawing
-$img = [System.Drawing.Image]::FromFile("C:\Users\44829\hermes-screenshot.png")
-$dest = "C:\Users\44829\hermes-temp\som.jpg"
+$img = [System.Drawing.Image]::FromFile("C:\Users\<user>\hermes-screenshot.png")
+$dest = "C:\Users\<user>\hermes-temp\som.jpg"
 $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | 
     Where-Object { $_.MimeType -eq "image/jpeg" }
 $encParams = New-Object System.Drawing.Imaging.EncoderParameters(1)
