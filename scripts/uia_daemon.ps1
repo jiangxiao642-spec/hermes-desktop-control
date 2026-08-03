@@ -73,7 +73,8 @@ $cnt = CountElements $ae
 Write-Host "[DAEMON] Initial: $cnt UIA elements"
 
 # Dump loop — every 2 seconds
-$PROFILE_DIR = "D:\hermes\uia_profiles"
+$HERMES_HOME = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { "$env:USERPROFILE\.hermes" }
+$PROFILE_DIR = Join-Path $HERMES_HOME "uia_profiles"
 New-Item -ItemType Directory -Force -Path $PROFILE_DIR | Out-Null
 $SNAP_FILE = Join-Path $PROFILE_DIR "$name.snap"
 

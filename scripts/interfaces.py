@@ -39,6 +39,80 @@ class CircuitState(Enum):
     HALF_OPEN = "HALF_OPEN"
 
 
+class VerifyResult(Enum):
+    """Ternary verification result — not binary pass/fail.
+
+    UNCERTAIN is a legitimate state that auto-escalates
+    to the next heavier verification layer.
+    """
+    PASS = "PASS"
+    FAIL = "FAIL"
+    UNCERTAIN = "UNCERTAIN"
+
+
+@dataclass
+class AnchorHeartbeat:
+    """Pre-operation check: confirm key controls are alive before acting.
+
+    Actual UIA scanning happens on the PowerShell side (UIAutomationClient).
+    This is the Python-side abstraction recording anchor definitions and
+    check results.
+
+    Key anchors (application-specific):
+    - Claude Desktop: [("Write your prompt to Claude", "Edit"), ("Send message", "Button")]
+    - OpenClaw: [("Message Assistant (Enter to send)", "Edit")]
+    """
+
+    _anchors: list = field(default_factory=list)  # [(name, control_type), ...]
+    _missing_threshold: int = 2
+    _consecutive_missing: int = 0
+    _last_check_time: float = 0.0
+    _clock: Any = None
+
+    def __post_init__(self):
+        if self._clock is None:
+            import time
+            # lightweight clock from stdlib — caller can inject TimeSource for tests
+            self._clock = type("_Clock", (), {
+                "monotonic": staticmethod(time.monotonic),
+            })()
+
+    def set_anchors(self, anchors: list) -> None:
+        """Set anchor list: [("Send message", "Button"), ...]"""
+        self._anchors = anchors
+
+    def evaluate(self, found_count: int) -> "VerifyResult":
+        """Evaluate anchor state from external UIA scan result.
+
+        found_count: number of anchors found by external scan.
+        Returns PASS / FAIL / UNCERTAIN (caller decides escalation).
+        """
+        self._last_check_time = self._clock.monotonic()
+        total = len(self._anchors)
+
+        if found_count >= total:
+            self._consecutive_missing = 0
+            return VerifyResult.PASS
+        elif found_count == 0:
+            self._consecutive_missing += 1
+            if self._consecutive_missing >= self._missing_threshold:
+                return VerifyResult.FAIL
+            return VerifyResult.UNCERTAIN
+        else:
+            self._consecutive_missing = 0
+            return VerifyResult.UNCERTAIN
+
+    @property
+    def is_alive(self) -> bool:
+        return self._consecutive_missing < self._missing_threshold
+
+    def summary(self) -> str:
+        return (
+            f"AnchorHeartbeat: {len(self._anchors)} anchors | "
+            f"consec_missing={self._consecutive_missing}"
+        )
+
+
 @dataclass
 class UIElement:
     """Normalized element representation across UIA / vision / DOM sources."""
@@ -328,8 +402,150 @@ class Pipeline:
         self._hash = hash_engine
 
     async def execute(self, op: Operation) -> OperationResult:
-        """Run a single operation through the full pipeline."""
-        raise NotImplementedError("Pipeline.execute — implement in v3.5")
+        """Run a single operation through the full pipeline.
+
+        Flow: shields→capture→annotate→cross-validate→checkpoint→execute→verify
+        On failure: safepoint.rollback → retry with alternate path → DESKTOP_CONTROL_FAILED
+        """
+        import time as _time
+        t0 = _time.monotonic()
+
+        # ── Phase 0: Shield check ──────────────────────────────────
+        if not self.can_proceed():
+            return OperationResult(
+                success=False, operation=op,
+                error="Shields blocked operation",
+                actual_state=f"health={self.health.level.name} breaker={self.circuit_breaker.state.value}",
+            )
+
+        # ── Phase 1: Environment check ─────────────────────────────
+        env = self.capture.current_env
+        self.env_detector.capture(env.screen_width, env.screen_height,
+                                   env.dpi_scale, env.monitor_count)
+
+        # ── Phase 2: Time guard ────────────────────────────────────
+        try:
+            self.time_guard.start_operation()
+        except Exception as exc:
+            return OperationResult(
+                success=False, operation=op, error=str(exc),
+            )
+
+        # ── Phase 3: Capture + annotate ────────────────────────────
+        for attempt in range(op.max_retries + 1):
+            try:
+                self.time_guard.check_timeout()
+
+                # Checkpoint before step
+                if self.safe_point is not None:
+                    self.safe_point.checkpoint(
+                        action=op.action,
+                        description=f"{op.action} element={op.element_index} '{op.element_label}'",
+                    )
+
+                # SOM scan
+                if op.element_index > 0:
+                    # Targeted operation — get elements, find target
+                    image = self.capture.fullscreen()
+                    elements = self.annotator.annotate(image)
+
+                    # Cross-validate if available
+                    if self.cross_validator is not None:
+                        cross_elements = self.annotator.annotate(image)
+                        elements = self.cross_validator.validate(elements, cross_elements)
+
+                    # Find target element
+                    target = None
+                    for el in elements:
+                        if el.index == op.element_index:
+                            target = el
+                            break
+                    if target is None and op.element_label:
+                        for el in elements:
+                            if op.element_label.lower() in el.label.lower():
+                                target = el
+                                break
+
+                    if target is None:
+                        self.health.record_failure(
+                            f"element #{op.element_index} '{op.element_label}' not found"
+                        )
+                        if self.safe_point is not None:
+                            self.safe_point.rollback("element not found")
+                        continue  # retry
+
+                    # Execute
+                    success = False
+                    if op.action == "click":
+                        success = self.operator.click(target)
+                    elif op.action == "type":
+                        success = self.operator.type_text(target, op.text)
+                    elif op.action == "read":
+                        text = self.operator.read_text(target)
+                        success = bool(text)
+                    elif op.action == "scroll":
+                        success = self.operator.click(target)  # fallback: click to focus
+
+                    # Verify
+                    verify_ctx = {"elements": elements, "target": target}
+                    result = self.verifier.verify(op, verify_ctx)
+
+                    if result.success:
+                        self.health.record_success()
+                        self.circuit_breaker.record_success()
+                        result.latency_ms = (_time.monotonic() - t0) * 1000
+                        result.retries = attempt
+                        return result
+
+                    # Failed — record and rollback
+                    self.health.record_failure(result.error or "verification failed")
+                    self.circuit_breaker.record_non_timeout_failure(result.error or "")
+                    if self.safe_point is not None:
+                        snap = self.safe_point.rollback(result.error or "")
+                        if not self.safe_point.can_recover():
+                            return OperationResult(
+                                success=False, operation=op,
+                                error=f"DESKTOP_CONTROL_FAILED: [{snap.window_class}] {op.action} {op.element_label} — {result.error}",
+                                retries=attempt,
+                                latency_ms=(_time.monotonic() - t0) * 1000,
+                            )
+
+                else:
+                    # Untargeted operation (e.g. navigate, open app)
+                    success = False
+                    if op.action == "navigate":
+                        image = self.capture.fullscreen()
+                        context = {"image": image, "expected": op.expected}
+                        result = self.verifier.verify(op, context)
+                        success = result.success
+                    if success:
+                        self.health.record_success()
+                        self.circuit_breaker.record_success()
+                        return OperationResult(
+                            success=True, operation=op,
+                            method_used="vision",
+                            latency_ms=(_time.monotonic() - t0) * 1000,
+                        )
+
+                    self.health.record_failure(op.action + " navigation failed")
+
+            except Exception as exc:
+                self.health.record_failure(str(exc))
+                self.circuit_breaker.record_timeout()
+                if self.safe_point is not None and not self.safe_point.can_recover():
+                    return OperationResult(
+                        success=False, operation=op,
+                        error=f"DESKTOP_CONTROL_FAILED: {op.action} — {exc}",
+                        latency_ms=(_time.monotonic() - t0) * 1000,
+                    )
+
+        # Exhausted retries
+        return OperationResult(
+            success=False, operation=op,
+            error=f"DESKTOP_CONTROL_FAILED after {op.max_retries + 1} attempts",
+            retries=op.max_retries + 1,
+            latency_ms=(_time.monotonic() - t0) * 1000,
+        )
 
     def can_proceed(self) -> bool:
         """Check all shields before attempting any operation."""
@@ -382,7 +598,7 @@ def resolve_strategy(category: str, name: str, config: dict[str, Any] = None) ->
 
 __all__ = [
     # Domain
-    "DegradationLevel", "CircuitState",
+    "DegradationLevel", "CircuitState", "VerifyResult", "AnchorHeartbeat",
     "UIElement", "Operation", "OperationResult", "EnvSnapshot",
     "SafePointSnapshot",
     # Infrastructure

@@ -1,24 +1,32 @@
 ---
 name: desktop-control
-description: "v3.9 — 三元验证（PASS/FAIL/UNCERTAIN）+ Anchor心跳 + UIA守护进程。Win32/WinUI3/Electron/Qt全覆盖。"
+description: "Use when controlling Windows desktop GUI via UIA + visual fallback. Multi-shield safety, ternary verification, Electron/Win32/WinUI3/Qt coverage."
+version: 3.10.0
+author: 陈一 + CC (Claude Code)
+license: MIT
+platforms: [windows]
+metadata:
+  hermes:
+    tags: [desktop-automation, uia, gui, windows, som, vision]
+    related_skills: [computer-use]
 ---
 
-# Desktop Control Skill v3.9
+# Desktop Control Skill v3.10
 
 > **WHAT（边界）：** Windows 桌面 GUI 操控栈——UIA 主通道 + 视觉兜底。**覆盖** Electron/Win32/WinUI3 应用的精确操控——读消息、写字、点击、截图。**不覆盖** Qt 应用的 UIA 操控（走视觉兜底）、应用内部逻辑、业务流程编排。这个 skill 只管"怎么操控桌面"，不管"操控来完成什么任务"。
 
 > **UIA 优先原则（v3.9+）：** Invoke 点按钮、SetValue 填字段、Element 树读内容——这三样是首选。物理鼠标（mouse_event/SetCursorPos）和截图（vision_analyze）只在 UIA 盲区才用。盲区已知：el-select 下拉（纯 Text 控件无交互接口）、Qt 应用（2元素骨架）。详见 `references/el-select-web-component-uia.md`。
 
-**v3.9: 三元验证（PASS/FAIL/UNCERTAIN）+ Anchor 心跳（操作前确认关键控件存活）。**
+**v3.10: 依赖方向修正——VerifyResult/AnchorHeartbeat 迁至 interfaces.py 单一真相源 + Pipeline.execute 落地实现 + PowerShell 注入修复 + 路径去硬编码。**
 
 ## 操作流程
 
-**🆕 UIA 激活前置（v3.8）：** 目标为 Electron/Chromium 应用时，**先跑** `mcp_windows_bridge_uia_activate(pid=<目标PID>)` 或启动 `uia_daemon.ps1` 持久守护。四阶段激活后元素数可暴增（OpenClaw 实测: 10→2003，200×）。⚠️ Store 版应用（Claude Desktop AppContainer）外部 UIA 不可达——激活无效。**关键：handler 必须持久存活——单次 PS1 退出后 UiaClientsAreListening() 恢复 FALSE，Chromium 立即缩回骨架。** 详见 `references/directshell-uia-activation.md`。
+**UIA 激活前置（v3.8）：** 目标为 Electron/Chromium 应用时，**先跑** `mcp_windows_bridge_uia_activate(pid=<目标PID>)` 或启动 `uia_daemon.ps1` 持久守护。四阶段激活后元素数可暴增（OpenClaw 实测: 10→2003，200×）。⚠️ Store 版应用（Claude Desktop AppContainer）外部 UIA 不可达——激活无效。**关键：handler 必须持久存活——单次 PS1 退出后 UiaClientsAreListening() 恢复 FALSE，Chromium 立即缩回骨架。** 详见 `references/directshell-uia-activation.md`。
 
-**🆕 三元验证 + Anchor 心跳（v3.9，Claude 协作）：**
+**三元验证 + Anchor 心跳（v3.9，Claude 协作）：**
 - 验证不再是 pass/fail 二元——多了 **UNCERTAIN** 状态。UNCERTAIN 自动升级验证层（UIA→OCR→vision），不手动判断。
 - 每轮操作前先跑 **anchor 心跳**——确认关键控件（发送按钮/输入框）还在，不等操作失败才发现窗口崩溃。
-- `VerifyResult` 和 `AnchorHeartbeat` 类已加入 `scripts/robustness.py`。anchor 检测通过 UIA 守护进程的 snap 文件判断——`Total elements` 骤降 = 窗口异常。
+- `VerifyResult` 和 `AnchorHeartbeat` 定义在 `scripts/interfaces.py`（v3.10 从 robustness.py 迁入，作为唯一真相源）。anchor 检测通过 UIA 守护进程的 snap 文件判断——`Total elements` 骤降 = 窗口异常。
 
 ```
 收到 GUI 任务

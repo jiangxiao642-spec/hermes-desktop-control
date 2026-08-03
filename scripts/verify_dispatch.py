@@ -3,14 +3,12 @@ desktop-control verification dispatch layer
 plugs VerifyResult + AnchorHeartbeat into the actual execution pipeline
 """
 
-import subprocess
-import json
 import time
 from pathlib import Path
 from dataclasses import dataclass
 
-# imports from our own package
-from scripts.robustness import VerifyResult, AnchorHeartbeat, SystemTime
+# Domain types now live in interfaces (single source of truth)
+from scripts.interfaces import VerifyResult, AnchorHeartbeat
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -27,8 +25,9 @@ ANCHORS = {
     ],
 }
 
+
 # ═══════════════════════════════════════════════════════════════
-# Verification escalation — UNCERTAIN → heavier layer
+# Verification escalation — UNCERTAIN -> heavier layer
 # ═══════════════════════════════════════════════════════════════
 
 @dataclass
@@ -83,32 +82,32 @@ class VerifyWithVision:
         return 3000
 
 
-# Escalation chain: cheapest → most expensive
+# Escalation chain: cheapest -> most expensive
 ESCALATION_CHAIN = [VerifyWithUIA, VerifyWithpHash, VerifyWithOCR, VerifyWithVision]
 
 
 def escalate_verification(
-    current_idx: int,
     verification_fn,
     *args,
     **kwargs,
 ) -> tuple[VerifyResult, int]:
-    """If current result is UNCERTAIN, try next heavier layer.
+    """If result is UNCERTAIN, try the next heavier verification layer.
 
+    Iterates through ESCALATION_CHAIN (loop, not recursion).
     Returns (final_result, layer_index_used).
     """
-    layer = ESCALATION_CHAIN[min(current_idx, len(ESCALATION_CHAIN) - 1)]
-    result = verification_fn(layer, *args, **kwargs)
+    for idx in range(len(ESCALATION_CHAIN)):
+        layer = ESCALATION_CHAIN[idx]
+        result = verification_fn(layer, *args, **kwargs)
 
-    if result == VerifyResult.PASS or result == VerifyResult.FAIL:
-        return result, current_idx
+        if result in (VerifyResult.PASS, VerifyResult.FAIL):
+            return result, idx
 
-    # UNCERTAIN — escalate
-    next_idx = current_idx + 1
-    if next_idx >= len(ESCALATION_CHAIN):
-        return VerifyResult.FAIL, current_idx  # exhausted all layers
+        # UNCERTAIN — continue to next layer
+        continue
 
-    return escalate_verification(next_idx, verification_fn, *args, **kwargs)
+    # Exhausted all layers
+    return VerifyResult.FAIL, len(ESCALATION_CHAIN) - 1
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -116,41 +115,50 @@ def escalate_verification(
 # ═══════════════════════════════════════════════════════════════
 
 
-def check_anchors(app_name: str, uia_snap_path: str) -> AnchorHeartbeat:
-    """Read UIA snap file and count how many anchor elements are present.
+def _count_anchors_in_snap(anchors: list, uia_snap_path: str) -> int:
+    """Count how many anchor elements appear in the UIA snap file.
 
-    Snap file format: first line is header like '  UIA elements: 2003'
-    Actual element scan happens in PowerShell via bridge.
-    Here we do a lightweight parse of the cached snap.
+    Returns the count (0 if file missing). Does NOT mutate any state.
+    """
+    try:
+        snap_text = Path(uia_snap_path).read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return 0
+
+    found = 0
+    snap_lower = snap_text.lower()
+    for name, _ctrl_type in anchors:
+        if name.lower() in snap_lower:
+            found += 1
+    return found
+
+
+def check_anchors(app_name: str, uia_snap_path: str) -> AnchorHeartbeat:
+    """Read UIA snap file, evaluate anchor presence, return heartbeat.
+
+    Calls evaluate() exactly once — the caller gets a fully-evaluated heartbeat.
     """
     heartbeat = AnchorHeartbeat()
 
     anchors = ANCHORS.get(app_name)
     if not anchors:
         heartbeat.set_anchors([])
-        return heartbeat
-
-    heartbeat.set_anchors(anchors)
-
-    try:
-        snap_text = Path(uia_snap_path).read_text(encoding="utf-8", errors="replace")
-    except FileNotFoundError:
         heartbeat.evaluate(0)
         return heartbeat
 
-    found = 0
-    for name, ctrl_type in anchors:
-        if name.lower() in snap_text.lower():
-            found += 1
-
+    heartbeat.set_anchors(anchors)
+    found = _count_anchors_in_snap(anchors, uia_snap_path)
     heartbeat.evaluate(found)
     return heartbeat
 
 
 def anchor_ok(app_name: str, uia_snap_path: str) -> bool:
-    """Quick pre-op check: are key controls alive?"""
+    """Quick pre-op check: are key controls alive?
+
+    Delegates to check_anchors and reads the result — no double-evaluate.
+    """
     hb = check_anchors(app_name, uia_snap_path)
-    return hb.evaluate(len(hb._anchors)) == VerifyResult.PASS
+    return hb.is_alive and len(hb._anchors) > 0
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -164,4 +172,3 @@ def snap_age_seconds(uia_snap_path: str) -> float:
         return time.time() - Path(uia_snap_path).stat().st_mtime
     except FileNotFoundError:
         return float("inf")
-

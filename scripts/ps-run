@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# ps-run — PowerShell 桥接器，强制 UTF-8 编码
-# 用法: ps-run <powershell_commands>
-# 或: echo "commands" | ps-run
+# ps-run — PowerShell bridge, UTF-8 encoding enforced
+# Usage: ps-run <powershell_commands>
+#   or: echo "commands" | ps-run
 set -e
 
 SCRIPT="${1:-$(cat)}"
 
-/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -Command "
+powershell.exe -NoProfile -Command "
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 [Console]::InputEncoding  = [Text.Encoding]::UTF8
 ${SCRIPT}

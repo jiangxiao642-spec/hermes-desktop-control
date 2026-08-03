@@ -10,10 +10,14 @@
 import sys
 import json
 import subprocess
+import os
+import tempfile
 from pathlib import Path
 
-CACHE_PATH = Path("/tmp/som-cache.json")
-SCREENSHOT_PATH = "/tmp/som-screenshot.png"
+_SOM_DIR = Path(os.environ.get("HERMES_TEMP", tempfile.gettempdir())) / "hermes-som"
+_SOM_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_PATH = _SOM_DIR / "som-cache.json"
+SCREENSHOT_PATH = str(_SOM_DIR / "som-screenshot.png")
 
 FULLSOM_PROMPT = """Analyze this screenshot and identify ALL interactive UI elements.
 
