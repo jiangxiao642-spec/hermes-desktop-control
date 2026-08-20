@@ -12,9 +12,12 @@
 import sys
 import json
 import subprocess
+import os
+import tempfile
 from pathlib import Path
 
-CACHE_PATH = Path("/tmp/som-cache.json")
+_SOM_DIR = Path(os.environ.get("HERMES_TEMP", tempfile.gettempdir())) / "hermes-som"
+CACHE_PATH = _SOM_DIR / "som-cache.json"
 
 CLICK_LEFT = """
 Add-Type -AssemblyName System.Windows.Forms

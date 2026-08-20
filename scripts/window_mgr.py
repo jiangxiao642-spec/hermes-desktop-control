@@ -11,6 +11,21 @@ Usage:
 
 import sys
 
+
+def _ps_escape(s: str) -> str:
+    """Escape a string for safe embedding in a PowerShell double-quoted string.
+
+    In PowerShell double-quoted strings:
+      ` (backtick) is the escape char
+      "  -> `"   (prevent premature string close)
+      $  -> `$   (prevent variable expansion)
+      `  -> ``   (literal backtick)
+    """
+    s = s.replace("`", "``")
+    s = s.replace('"', '`"')
+    s = s.replace("$", "`$")
+    return s
+
 ACTIVATE = """
 Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
 public class W{{
@@ -96,19 +111,19 @@ def main():
         if not title:
             print("Title substring required", file=sys.stderr)
             sys.exit(1)
-        print(ACTIVATE.format(title=title).strip())
+        print(ACTIVATE.format(title=_ps_escape(title)).strip())
     elif action == "minimize":
         title = " ".join(sys.argv[2:]) if len(sys.argv) > 2 else ""
         if not title:
             print("Title substring required", file=sys.stderr)
             sys.exit(1)
-        print(MINIMIZE.format(title=title).strip())
+        print(MINIMIZE.format(title=_ps_escape(title)).strip())
     elif action == "focus-by-class":
         cls = sys.argv[2] if len(sys.argv) > 2 else ""
         if not cls:
             print("Class name required", file=sys.stderr)
             sys.exit(1)
-        print(FOCUS_BY_CLASS.format(class_name=cls).strip())
+        print(FOCUS_BY_CLASS.format(class_name=_ps_escape(cls)).strip())
     else:
         print(f"Unknown: {action}", file=sys.stderr)
         sys.exit(1)

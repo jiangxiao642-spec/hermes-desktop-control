@@ -6,7 +6,7 @@ Usage:
   python3 mouse_action.py double-click <x> <y> # 双击
   python3 mouse_action.py move <x> <y>         # 仅移动不点击
 
-输出: PowerShell命令字符串，通过 mcp_windows_bridge_run_powershell 执行。
+Output: a PowerShell command string for execution by the active host adapter.
 """
 
 import sys

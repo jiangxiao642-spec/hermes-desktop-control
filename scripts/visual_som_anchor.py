@@ -18,7 +18,7 @@ Flow:
   if changed: refresh FullSOM (20s)
 
 Depends on: Pillow, imagehash (optional, falls back to pixel sampling)
-Uses: Hermes vision_analyze tool (via vision_tools pipeline)
+Uses: a host-provided vision adapter through the runtime integration layer
 
 Integrated with: desktop-control v3.4 visual path
 """
@@ -50,18 +50,21 @@ logger = logging.getLogger(__name__)
 
 # Strategy interfaces — soft dependency for v1.2 decoupling
 try:
-    from scripts.interfaces import (
+    from .interfaces import (
         UIElement, CrossValidator, SOMAnnotator, HashEngine,
         register_strategy,
     )
 except ImportError:
-    UIElement = None          # type: ignore
-    CrossValidator = None     # type: ignore
-    SOMAnnotator = None       # type: ignore
-    HashEngine = None         # type: ignore
-    def register_strategy(category: str, name: str):
-        """No-op decorator when interfaces.py is unavailable."""
-        return lambda factory: factory
+    try:
+        from scripts.interfaces import (
+            UIElement, CrossValidator, SOMAnnotator, HashEngine,
+            register_strategy,
+        )
+    except ImportError:
+        from interfaces import (
+            UIElement, CrossValidator, SOMAnnotator, HashEngine,
+            register_strategy,
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -140,7 +143,13 @@ class VisualElement:
     cross_validated: bool = False  # True if confirmed by UIA or visual crop
 
 
-def _match_vision_to_uia_element(vis_el, uia_el: dict,
+def _element_field(element, dict_key: str, attr_name: str, default=""):
+    if isinstance(element, dict):
+        return element.get(dict_key, default)
+    return getattr(element, attr_name, default)
+
+
+def _match_vision_to_uia_element(vis_el, uia_el,
                                  threshold: float = 0.6) -> bool:
     """Check if a vision-identified element matches a UIA element.
 
@@ -151,14 +160,14 @@ def _match_vision_to_uia_element(vis_el, uia_el: dict,
     Label match: substring containment or word-overlap ratio >= threshold.
     """
     vis_type = vis_el.element_type.lower()
-    uia_type = uia_el.get("control_type", "").lower()
+    uia_type = (_element_field(uia_el, "control_type", "element_type") or "").lower()
     if vis_type in ("edit", "textinput") and uia_type in ("edit", "text", "document"):
         pass  # equivalent input types
     elif uia_type and vis_type not in uia_type and uia_type not in vis_type:
         return False
 
     vis_label = vis_el.label.lower().strip() if vis_el.label else ""
-    uia_name = (uia_el.get("name", "") or "").lower().strip()
+    uia_name = (_element_field(uia_el, "name", "label") or "").lower().strip()
     if not vis_label and not uia_name:
         return False
     if vis_label and uia_name:
@@ -252,8 +261,8 @@ class VisualSOMCache:
                     logger.debug(
                         "Cross-validated [#%d] %s '%s' ↔ UIA %s '%s'",
                         el.index, el.element_type, el.label,
-                        uia_el.get("control_type", "?"),
-                        uia_el.get("name", "?"),
+                        _element_field(uia_el, "control_type", "element_type", "?"),
+                        _element_field(uia_el, "name", "label", "?"),
                     )
                     break
             # Elements without a match stay at cross_validated=False
@@ -467,8 +476,8 @@ class VisionSOMCrossValidator:
                         getattr(el, 'index', '?'),
                         getattr(el, 'element_type', '?'),
                         getattr(el, 'label', ''),
-                        uia_el.get("control_type", "?"),
-                        uia_el.get("name", "?"),
+                        _element_field(uia_el, "control_type", "element_type", "?"),
+                        _element_field(uia_el, "name", "label", "?"),
                     )
                     break
         return primary
@@ -546,7 +555,13 @@ def resolve_strategy(category: str, name: str, config: dict = None):
         config = {}
     # Try the registry from interfaces.py first
     try:
-        from scripts.interfaces import resolve_strategy as _resolve
+        try:
+            from .interfaces import resolve_strategy as _resolve
+        except ImportError:
+            try:
+                from scripts.interfaces import resolve_strategy as _resolve
+            except ImportError:
+                from interfaces import resolve_strategy as _resolve
         return _resolve(category, name, config)
     except (ImportError, KeyError):
         pass

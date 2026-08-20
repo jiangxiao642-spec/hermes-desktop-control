@@ -1,49 +1,55 @@
-# Hermes Desktop Control v3.7
+# Desktop Control v3.11.1
 
-> Windows 桌面 GUI 控制 Skill — 五护盾 + 操作检查点回滚 + CC 感知层（som-scan/som-click）
+Runtime-neutral Windows desktop automation for Codex, Claude Code, OpenClaw,
+Hermes, and other agent hosts.
 
-**成熟度：** 🟡 实验性。UIA路径稳定；视觉路径依赖vision；Store应用激活有降级链。
+## Architecture
 
-## 三层架构
-
-```
-感知层（CC 三脚本）        → som-scan 扫屏 → som-click 点编号
-鲁棒性层（陈一 v3.7）      → 五护盾 + 激活降级 + 粘贴验证 + 对话回复读取
-执行层（Windows Bridge）   → mouse/keyboard/clipboard/PowerShell/UIA
-```
-
-## 文件结构
-
-```
-├── SKILL.md                          # 完整规范（操作流程/应用分类表/验证分层）
-├── README.md
-├── scripts/
-│   ├── ps-run                        # CC: PowerShell UTF-8 桥接
-│   ├── som-scan                      # CC: 截图 → vision 标注所有可交互元素
-│   ├── som-click                     # CC: 按编号点击（左/右/双击/移动）
-│   ├── mouse_action.py               # 鼠标操作封装
-│   ├── window_mgr.py                 # 窗口管理
-│   ├── crop_region.py                # 局部截图裁剪
-│   ├── visual_som_anchor.py          # SOM 锚点引擎
-│   ├── robustness.py                 # 五护盾实现
-│   └── interfaces.py                 # 接口协议
-└── references/                       # 30+ 参考文档
+```text
+Agent host adapter
+  -> DesktopControlEngine
+  -> anchor preflight and per-window lock
+  -> UIA/SOM element discovery
+  -> semantic or visual action
+  -> adaptive verification
+  -> executable recovery callback
+  -> final evidence-backed result
 ```
 
-## 版本历史
+The core engine does not depend on a specific agent product. Each host supplies
+adapters for the capabilities it has: UIA, screenshots, pointer and keyboard,
+clipboard, OCR, vision, process control, and permissions.
 
-| 版本 | 变更 |
-|------|------|
-| v3.7 | Store应用激活降级链 + 对话回复读取规则 + 粘贴验证三步 + CC三脚本 |
-| v3.6 | 操作级检查点回滚 |
-| v3.5 | 五护盾 + 接口解耦 |
-| v1.3 | Bug修复（变量名 mouse_event） |
+## Key Files
 
-## 作者
+```text
+SKILL.md                    Runtime-neutral operating policy
+scripts/engine.py           Unified execution and recovery chain
+scripts/waiting.py          Adaptive verification polling
+scripts/interfaces.py       Shared domain types and protocols
+scripts/robustness.py       Health, timeout, breaker, environment, recovery state
+scripts/verify_dispatch.py  Anchor state and verification escalation
+scripts/visual_som_anchor.py
+                            Visual SOM parsing and cross-validation
+scripts/uia_daemon.ps1      Persistent adaptive UIA tree snapshots
+tests/                      Regression tests
+references/                 Application-specific research and field notes
+```
 
-陈一 + CC (Claude Code)  
-联系：jiangxiao642@gmail.com
+## Portability Contract
 
-## 协议
+- Host-specific command names belong in adapters.
+- Core operation and safety policy remains host-independent.
+- Missing capabilities must fail explicitly.
+- Non-idempotent actions are never repeated after execution merely because
+  verification is uncertain.
+- Completion requires observable UI evidence.
+
+## Compatibility
+
+Set `DESKTOP_CONTROL_HOME` to choose the runtime data directory. Existing Hermes
+installations remain compatible through the legacy `HERMES_HOME` fallback.
+
+## License
 
 MIT
