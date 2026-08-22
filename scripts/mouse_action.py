@@ -11,56 +11,12 @@ Output: a PowerShell command string for execution by the active host adapter.
 
 import sys
 
-CLICK_LEFT = """
-Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y})
-Start-Sleep -Milliseconds 80
-Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
-public class M{{[DllImport("user32.dll")]
-public static extern void mouse_event(int f,int dx,int dy,int d,int e);}}'
-[M]::mouse_event(0x0002,0,0,0,0); Start-Sleep -Milliseconds 80
-[M]::mouse_event(0x0004,0,0,0,0)
-ECHO OK
-"""
+try:
+    from click_script import click_script
+except ImportError:
+    from scripts.click_script import click_script
 
-CLICK_RIGHT = """
-Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y})
-Start-Sleep -Milliseconds 80
-Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
-public class M{{[DllImport("user32.dll")]
-public static extern void mouse_event(int f,int dx,int dy,int d,int e);}}'
-[M]::mouse_event(0x0008,0,0,0,0); Start-Sleep -Milliseconds 80
-[M]::mouse_event(0x0010,0,0,0,0)
-ECHO OK
-"""
-
-CLICK_DOUBLE = """
-Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y})
-Start-Sleep -Milliseconds 80
-Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
-public class M{{[DllImport("user32.dll")]
-public static extern void mouse_event(int f,int dx,int dy,int d,int e);}}'
-[M]::mouse_event(0x0002,0,0,0,0); Start-Sleep -Milliseconds 80
-[M]::mouse_event(0x0004,0,0,0,0); Start-Sleep -Milliseconds 200
-[M]::mouse_event(0x0002,0,0,0,0); Start-Sleep -Milliseconds 80
-[M]::mouse_event(0x0004,0,0,0,0)
-ECHO OK
-"""
-
-MOVE_ONLY = """
-Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y})
-ECHO OK
-"""
-
-ACTIONS = {
-    "click": CLICK_LEFT,
-    "right-click": CLICK_RIGHT,
-    "double-click": CLICK_DOUBLE,
-    "move": MOVE_ONLY,
-}
+ACTIONS = ("click", "right-click", "double-click", "move")
 
 
 def main():
@@ -74,15 +30,15 @@ def main():
         print(f"Unknown action: {action}", file=sys.stderr)
         sys.exit(1)
 
-    if action != "help":
-        if len(sys.argv) < 4:
-            print("x and y required for this action", file=sys.stderr)
-            sys.exit(1)
-        x, y = sys.argv[2], sys.argv[3]
-        print(ACTIONS[action].format(x=x, y=y).strip())
-    else:
-        for name in ACTIONS:
-            print(f"  {name}")
+    if len(sys.argv) < 4:
+        print("x and y required for this action", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        print(click_script(action, sys.argv[2], sys.argv[3], ok_marker="ECHO OK").strip())
+    except ValueError as exc:
+        print(f"Invalid coordinate: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

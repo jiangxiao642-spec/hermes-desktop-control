@@ -2,7 +2,7 @@
 """SOM 扫描——截图 + vision 标注所有可交互元素，缓存坐标。
 
 用法:
-  som-scan              # 截图 → vision → 缓存到 /tmp/som-cache.json
+  som-scan              # 截图 → vision → 缓存到 HERMES_TEMP/hermes-som
   som-scan --show       # 扫描并显示元素列表
   som-scan --file <path>  # 用已有截图不重新截
 """
