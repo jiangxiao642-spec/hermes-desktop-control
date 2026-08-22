@@ -9,59 +9,34 @@
   som-click --list            # 列出所有缓存元素
 """
 
-import sys
 import json
-import subprocess
 import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+try:
+    from click_script import click_script
+except ImportError:
+    from scripts.click_script import click_script
 
 _SOM_DIR = Path(os.environ.get("HERMES_TEMP", tempfile.gettempdir())) / "hermes-som"
 CACHE_PATH = _SOM_DIR / "som-cache.json"
 
-CLICK_LEFT = """
-Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y})
-Start-Sleep -Milliseconds 80
-Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
-public class M{{[DllImport("user32.dll")]
-public static extern void mouse_event(int f,int dx,int dy,int d,int e);}}'
-[M]::mouse_event(0x0002,0,0,0,0); Start-Sleep -Milliseconds 80
-[M]::mouse_event(0x0004,0,0,0,0)
-Write-Output 'CLICK_OK'
-"""
+_MARKERS = {
+    "click": "CLICK_OK",
+    "right-click": "RIGHT_CLICK_OK",
+    "double-click": "DOUBLE_CLICK_OK",
+    "move": "MOVE_OK",
+}
 
-CLICK_RIGHT = """
-Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y})
-Start-Sleep -Milliseconds 80
-Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
-public class M{{[DllImport("user32.dll")]
-public static extern void mouse_event(int f,int dx,int dy,int d,int e);}}'
-[M]::mouse_event(0x0008,0,0,0,0); Start-Sleep -Milliseconds 80
-[M]::mouse_event(0x0010,0,0,0,0)
-Write-Output 'RIGHT_CLICK_OK'
-"""
-
-CLICK_DOUBLE = """
-Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y})
-Start-Sleep -Milliseconds 80
-Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
-public class M{{[DllImport("user32.dll")]
-public static extern void mouse_event(int f,int dx,int dy,int d,int e);}}'
-[M]::mouse_event(0x0002,0,0,0,0); Start-Sleep -Milliseconds 80
-[M]::mouse_event(0x0004,0,0,0,0); Start-Sleep -Milliseconds 200
-[M]::mouse_event(0x0002,0,0,0,0); Start-Sleep -Milliseconds 80
-[M]::mouse_event(0x0004,0,0,0,0)
-Write-Output 'DOUBLE_CLICK_OK'
-"""
-
-MOVE_ONLY = """
-Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y})
-Write-Output 'MOVE_OK'
-"""
+_LABELS = {
+    "click": "点击",
+    "right-click": "右键",
+    "double-click": "双击",
+    "move": "移动",
+}
 
 
 def die(msg):
@@ -99,22 +74,19 @@ def main():
     x, y = el["cx"], el["cy"]
 
     if "--right" in sys.argv:
-        script = CLICK_RIGHT.format(x=x, y=y)
-        action = "右键"
+        action = "right-click"
     elif "--double" in sys.argv:
-        script = CLICK_DOUBLE.format(x=x, y=y)
-        action = "双击"
+        action = "double-click"
     elif "--move" in sys.argv:
-        script = MOVE_ONLY.format(x=x, y=y)
-        action = "移动"
+        action = "move"
     else:
-        script = CLICK_LEFT.format(x=x, y=y)
-        action = "点击"
+        action = "click"
 
+    script = click_script(action, x, y, ok_marker=_MARKERS[action])
     result = subprocess.run(
         ["ps-run", script], capture_output=True, text=True, timeout=10
     )
-    print(f"[som-click] ✅ {action} [{idx}] \"{el['label']}\" → ({x}, {y})")
+    print(f"[som-click] ✅ {_LABELS[action]} [{idx}] \"{el['label']}\" → ({x}, {y})")
     if result.stdout.strip():
         print(f"  {result.stdout.strip()}")
 
